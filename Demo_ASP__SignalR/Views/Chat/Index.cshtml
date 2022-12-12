@@ -1,0 +1,152 @@
+﻿<h1>Messagerie</h1>
+
+<form id="form-connect">
+    <label>Pseudo : </label>
+    <input name="pseudo" type="text" value="Zaza" />
+    <button type="submit">Valider</button>
+</form>
+<div>
+    <form id="form-message">
+        <h3>Envoyer un message</h3>
+        <textarea name="content" disabled="disabled"></textarea>
+        <button type="submit" disabled="disabled">Envoyer</button>
+    </form>
+
+    <button id="btn-join-group" disabled="disabled">Rejoindre un groupe</button>
+    <button id="btn-leave-group" disabled="disabled">Quitter un groupe</button>
+    <form id="form-message-group" class="d-none">
+        <h3>Envoyer un message dans un groupe</h3>
+        <textarea name="content"></textarea>
+        <button type="submit">Envoyer</button>
+    </form>
+
+    <div id="message-box"></div>
+</div>
+
+@section Scripts {
+    <script src="~/microsoft-signalr/signalr.js"></script>
+    <script>
+        const formConnect = document.getElementById('form-connect');
+        const formMessage = document.getElementById('form-message');
+        const messageBox = document.getElementById('message-box');
+
+        const btnJoinGroup = document.getElementById('btn-join-group');
+        const btnLeaveGroupe = document.getElementById('btn-leave-group');
+        const formMessageGroup = document.getElementById('form-message-group');
+
+        let pseudo = null;
+        const groupName = 'Test42'
+
+        // ********** Login **********
+        formConnect.addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            pseudo = formConnect['pseudo'].value;
+            formMessage.querySelector('button').removeAttribute('disabled');
+            formMessage.querySelector('textarea').removeAttribute('disabled');
+
+            btnJoinGroup.removeAttribute('disabled');
+
+            formConnect.querySelector('input').setAttribute('disabled', 'disabled');
+            formConnect.querySelector('button').setAttribute('disabled', 'disabled');
+
+            openConnectionToSignalR();
+        })
+
+        // ********** SignalR **********
+        const openConnectionToSignalR = () => {
+            // Configuration de la connection
+            const connection = new signalR.HubConnectionBuilder()
+                .withUrl('/chathub', {
+                    transport: signalR.HttpTransportType.WebSockets
+                })
+                .withAutomaticReconnect()
+                .configureLogging(signalR.LogLevel.Debug)
+                .build();
+
+            // Connection
+            const start = async () => {
+                try {
+                    await connection.start();
+                    console.log('Connection à SignalR réussi')
+                }
+                catch (e) {
+                    console.log('Connection à SignalR echoué', e);
+                }
+            }
+            start();
+
+            // Feature de la messagerie
+            connection.on('receiveWelcome', (message) => {
+                console.log('Message:', message);
+
+                const msg_html = document.createElement('p');
+                msg_html.classList.add('fst-italic')
+                msg_html.innerText = message;
+                messageBox.append(msg_html);
+            })
+
+
+            formMessage.addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                // Récuperation du message à envoyer
+                const msgContent = formMessage['content'].value;
+
+                // Gestion du formulaire
+                formMessage['content'].value = '';
+                formMessage['content'].focus();
+
+                // Envoyer le message via SignalR
+                try {
+                    await connection.invoke("sendMessage", pseudo, msgContent);
+                }
+                catch (e) {
+                    console.log(e);
+                }
+            })
+
+            connection.on('receiveMessage', (pseudoSender, message) => {
+                console.log('Message:', pseudoSender, message);
+
+                const pseudo_html = document.createElement('span');
+                pseudo_html.innerText = pseudoSender + ' : ';
+                pseudo_html.classList.add('fw-bold');
+
+                const msg_html = document.createElement('p');
+                msg_html.append(pseudo_html, message);
+
+                messageBox.append(msg_html);
+            })
+
+            // Feature de la messagerie de groupe
+            btnJoinGroup.addEventListener('click', async () => {
+                btnJoinGroup.setAttribute('disabled', 'disabled');
+                btnLeaveGroupe.removeAttribute('disabled');
+                formMessageGroup.classList.remove('d-none');
+
+                // Rejoindre le groupe via SignalR
+                await connection.invoke('joinGroup', groupName);
+            });
+
+            btnLeaveGroupe.addEventListener('click', async () => {
+                btnLeaveGroupe.setAttribute('disabled', 'disabled');
+                btnJoinGroup.removeAttribute('disabled');
+                formMessageGroup.classList.add('d-none');
+                
+                // Quitter le groupe via SignalR
+                await connection.invoke('leaveGroup', groupName)
+            });
+
+            formMessageGroup.addEventListener('submit', (e) => {
+                e.preventDefault();
+
+                const msgContent = formMessageGroup['content'].value;
+                formMessageGroup['content'].value = '';
+                formMessageGroup['content'].focus();
+
+                connection.invoke('sendMessageGroup', groupName, pseudo, msgContent);
+            })
+        }
+    </script>
+}
